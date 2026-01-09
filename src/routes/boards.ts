@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { prisma } from "../shared/prisma.js";
 import { requireSessionUser } from "../shared/session.js";
 
@@ -7,6 +8,10 @@ export async function boardsRoutes(app: FastifyInstance) {
   app.addHook("preHandler", async (req) => {
     await requireSessionUser(req);
   });
+
+  // =========================
+  // READ
+  // =========================
 
   // GET /api/boards
   app.get("/", async () => {
@@ -107,5 +112,85 @@ export async function boardsRoutes(app: FastifyInstance) {
     }
 
     return { ok: true, post };
+  });
+
+  // =========================
+  // WRITE
+  // =========================
+
+  // POST /api/boards/:slug/posts
+  app.post("/:slug/posts", async (req, reply) => {
+    const user = await requireSessionUser(req);
+
+    const Params = z.object({
+      slug: z.string(),
+    });
+
+    const Body = z.object({
+      title: z.string().min(3).max(120),
+      content: z.string().min(10),
+      isProposal: z.boolean().optional(),
+    });
+
+    const { slug } = Params.parse(req.params);
+    const body = Body.parse(req.body);
+
+    const board = await prisma.board.findUnique({
+      where: { slug },
+    });
+
+    if (!board) {
+      return reply.code(404).send({ ok: false, code: "BOARD_NOT_FOUND" });
+    }
+
+    // Solo Commander possono creare proposal
+    const isCommander = user.role === "ADMIN"; // placeholder: sarà sostituito dal gating reale
+    const isProposal = body.isProposal === true && isCommander;
+
+    const post = await prisma.post.create({
+      data: {
+        boardId: board.id,
+        authorId: user.id,
+        title: body.title,
+        content: body.content,
+        isProposal,
+      },
+    });
+
+    return reply.send({ ok: true, postId: post.id });
+  });
+
+  // POST /api/posts/:id/comments
+  app.post("/post/:id/comments", async (req, reply) => {
+    const user = await requireSessionUser(req);
+
+    const Params = z.object({
+      id: z.string(),
+    });
+
+    const Body = z.object({
+      content: z.string().min(2).max(2000),
+    });
+
+    const { id } = Params.parse(req.params);
+    const body = Body.parse(req.body);
+
+    const post = await prisma.post.findUnique({
+      where: { id },
+    });
+
+    if (!post) {
+      return reply.code(404).send({ ok: false, code: "POST_NOT_FOUND" });
+    }
+
+    await prisma.comment.create({
+      data: {
+        postId: post.id,
+        authorId: user.id,
+        content: body.content,
+      },
+    });
+
+    return reply.send({ ok: true });
   });
 }
