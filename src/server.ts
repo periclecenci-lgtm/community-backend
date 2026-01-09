@@ -7,11 +7,13 @@ import rateLimit from "@fastify/rate-limit";
 import { authRoutes } from "./routes/auth.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { commanderRoutes } from "./routes/commander.js";
+import { boardsRoutes } from "./routes/boards.js";
 import { startCommanderScheduler } from "./workers/commanderScheduler.js";
 
 const PORT = Number(process.env.PORT ?? 4001);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
-const SESSION_SECRET = process.env.SESSION_SECRET ?? "dev-secret-change-me-32chars-minimum";
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ?? "dev-secret-change-me-32chars-minimum";
 
 const app = Fastify({ logger: true });
 
@@ -24,8 +26,11 @@ app.get("/health", async () => ({ ok: true }));
 await app.register(authRoutes, { prefix: "/api/auth" });
 await app.register(walletRoutes, { prefix: "/api/wallet" });
 await app.register(commanderRoutes, { prefix: "/api/commander" });
+await app.register(boardsRoutes, { prefix: "/api/boards" });
 
 app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
   console.log(`Backend community running on http://localhost:${PORT}`);
-  startCommanderScheduler(app).catch((err) => app.log.error({ err }, "Commander scheduler failed"));
+  startCommanderScheduler(app).catch((err) =>
+    app.log.error({ err }, "Commander scheduler failed")
+  );
 });
