@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  username        String     @unique
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  status          UserStatus @default(PENDING)
+  role            UserRole   @default(USER)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  sessions           Session[]
+  verificationTokens EmailVerificationToken[]
+  walletNonces       WalletNonce[]
+  walletLinks        WalletLink[]
+  commanderStatuses  CommanderStatus[]
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  sessionKey String   @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WalletNonce {
+  id        String   @id @default(uuid())
+  userId    String
+  nonce     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model WalletLink {
+  id         String   @id @default(uuid())
+  userId     String
+  chainId    Int
+  address    String
+  linkedAt   DateTime @default(now())
+  unlinkedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chainId, address])
+  @@index([userId])
+  @@index([chainId, address])
+}
+
+model CommanderStatus {
+  id               String          @id @default(uuid())
+  userId           String
+  chainId          Int
+  address          String
+  isCommander      Boolean         @default(false)
+  lastCheckedAt    DateTime        @default(now())
+  lastEligibleAt   DateTime?
+  lastIneligibleAt DateTime?
+  balanceAtomic    String          @default("0")
+  reason           CommanderReason @default(NO_WALLET)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chainId, address])
+  @@index([isCommander])
+  @@index([lastCheckedAt])
+}
+
+enum CommanderReason {
+  OK
+  NO_WALLET
+  UNVERIFIED_EMAIL
+  INACTIVE_ACCOUNT
+  BELOW_THRESHOLD
+  CHAIN_READ_ERROR
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
