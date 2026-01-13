@@ -8,34 +8,31 @@ datasource db {
 }
 
 model User {
-  id              String     @id @default(uuid())
-  email           String     @unique
-  username        String     @unique
-  passwordHash    String
-  emailVerifiedAt DateTime?
-  status          UserStatus @default(PENDING)
-  role            UserRole   @default(USER)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                 String                   @id @default(uuid())
+  email              String                   @unique
+  username           String                   @unique
+  passwordHash       String
+  emailVerifiedAt    DateTime?
+  status             UserStatus               @default(PENDING)
+  role               UserRole                 @default(USER)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
-  sessions             Session[]
-  verificationTokens   EmailVerificationToken[]
-  walletNonces         WalletNonce[]
-  walletLinks          WalletLink[]
-  commanderStatuses    CommanderStatus[]
-
-  // Community Boards relations (FIX REQUIRED BY PRISMA)
-  posts                Post[]
-  comments             Comment[]
+  commanderStatuses  CommanderStatus[]
+  verificationTokens EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
+  sessions           Session[]
+  walletLinks        WalletLink[]
+  walletNonces       WalletNonce[]
 }
 
 model Session {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  sessionKey String   @unique
+  sessionKey String    @unique
   expiresAt  DateTime
   revokedAt  DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -44,12 +41,26 @@ model Session {
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -58,12 +69,12 @@ model EmailVerificationToken {
 }
 
 model WalletNonce {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  nonce     String   @unique
+  nonce     String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -72,11 +83,11 @@ model WalletNonce {
 }
 
 model WalletLink {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
   chainId    Int
   address    String
-  linkedAt   DateTime @default(now())
+  linkedAt   DateTime  @default(now())
   unlinkedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -87,16 +98,17 @@ model WalletLink {
 }
 
 model CommanderStatus {
-  id               String          @id @default(uuid())
-  userId           String
-  chainId          Int
-  address          String
-  isCommander      Boolean         @default(false)
-  lastCheckedAt    DateTime        @default(now())
-  lastEligibleAt   DateTime?
-  lastIneligibleAt DateTime?
-  balanceAtomic    String          @default("0")
-  reason           CommanderReason @default(NO_WALLET)
+  id                   String          @id @default(uuid())
+  userId               String
+  chainId              Int
+  address              String
+  isCommander          Boolean         @default(false)
+  lastCheckedAt        DateTime        @default(now())
+  lastEligibleAt       DateTime?
+  lastIneligibleAt     DateTime?
+  balanceAtomic        String          @default("0")
+  requiredThresholdUsd String          @default("500")
+  reason               CommanderReason @default(NO_WALLET)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -123,46 +135,4 @@ enum UserStatus {
 enum UserRole {
   USER
   ADMIN
-}
-
-/// ===============================
-/// COMMUNITY BOARDS (LIGHT)
-/// ===============================
-
-model Board {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  title       String
-  description String
-  createdAt   DateTime @default(now())
-
-  posts       Post[]
-}
-
-model Post {
-  id          String   @id @default(cuid())
-  boardId     String
-  authorId    String
-
-  title       String
-  content     String
-  isProposal  Boolean  @default(false)
-
-  createdAt   DateTime @default(now())
-
-  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  comments    Comment[]
-}
-
-model Comment {
-  id        String   @id @default(cuid())
-  postId    String
-  authorId  String
-
-  content   String
-  createdAt DateTime @default(now())
-
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 }
