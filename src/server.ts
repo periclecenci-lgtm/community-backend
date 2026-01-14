@@ -11,6 +11,7 @@ import { boardsRoutes } from "./routes/boards.js";
 import { startCommanderScheduler } from "./workers/commanderScheduler.js";
 
 const PORT = Number(process.env.PORT ?? 4001);
+const HOST = process.env.HOST ?? "127.0.0.1";
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 const SESSION_SECRET =
   process.env.SESSION_SECRET ?? "dev-secret-change-me-32chars-minimum";
@@ -28,8 +29,8 @@ await app.register(walletRoutes, { prefix: "/api/wallet" });
 await app.register(commanderRoutes, { prefix: "/api/commander" });
 await app.register(boardsRoutes, { prefix: "/api/boards" });
 
-app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
-  console.log(`Backend community running on http://localhost:${PORT}`);
+app.listen({ port: PORT, host: HOST }).then(() => {
+  console.log(`Backend community running on http://${HOST}:${PORT}`);
   startCommanderScheduler(app).catch((err) =>
     app.log.error({ err }, "Commander scheduler failed")
   );
