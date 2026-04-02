@@ -16,28 +16,40 @@ const BASE_URL =
 export async function sendVerificationEmail(to: string, token: string) {
   const verifyUrl = `${BASE_URL}/community/verify?token=${token}`;
 
+  console.log("=== EMAIL DEBUG ===");
+  console.log("SMTP_HOST:", SMTP_HOST);
+  console.log("SMTP_USER:", SMTP_USER);
+  console.log("SMTP_PASS exists:", !!SMTP_PASS);
+  console.log("TO:", to);
+  console.log("VERIFY URL:", verifyUrl);
+
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    // DEV MODE: log instead of sending
     console.log("[EMAIL-DEV] Verify link:", verifyUrl);
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: false,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS
-    }
-  });
+  try {
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: false,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS
+      }
+    });
 
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to,
-    subject: "Verify your SBELM Community account",
-    text: `Verify your account by clicking:\n\n${verifyUrl}`
-  });
+    const info = await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "Verify your SBELM Community account",
+      text: `Verify your account by clicking:\n\n${verifyUrl}`
+    });
+
+    console.log("EMAIL SENT:", info.messageId);
+  } catch (err) {
+    console.error("EMAIL ERROR:", err);
+  }
 }
 
 // =========================
@@ -48,25 +60,30 @@ export async function sendPasswordResetEmail(to: string, token: string) {
   const resetUrl = `${BASE_URL}/community/reset-password?token=${token}`;
 
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    // DEV MODE: log instead of sending
     console.log("[EMAIL-DEV] Reset password link:", resetUrl);
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: false,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS
-    }
-  });
+  try {
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: false,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS
+      }
+    });
 
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to,
-    subject: "Reset your SBELM Community password",
-    text: `Reset your password by clicking:\n\n${resetUrl}`
-  });
+    const info = await transporter.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject: "Reset your SBELM Community password",
+      text: `Reset your password by clicking:\n\n${resetUrl}`
+    });
+
+    console.log("RESET EMAIL SENT:", info.messageId);
+  } catch (err) {
+    console.error("RESET EMAIL ERROR:", err);
+  }
 }
