@@ -12,19 +12,21 @@
     "prisma:deploy": "prisma migrate deploy"
   },
   "dependencies": {
-    "fastify": "^4.29.1",
-    "@fastify/cors": "^8.4.0",
     "@fastify/cookie": "^9.3.1",
+    "@fastify/cors": "^8.4.0",
     "@fastify/rate-limit": "^9.1.0",
     "@prisma/client": "^5.22.0",
     "argon2": "^0.41.1",
     "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "fastify": "^4.29.1",
     "nanoid": "^5.0.7",
     "nodemailer": "^6.9.15",
     "viem": "^2.21.45",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.14.10",
     "@types/nodemailer": "^6.4.15",
     "prisma": "^5.22.0",
