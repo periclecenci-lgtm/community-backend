@@ -1,83 +1,75 @@
-import { Router, Request, Response } from "express";
+import type { FastifyInstance } from "fastify";
 import { prisma } from "../shared/prisma.js";
 
-const router = Router();
-
-// GET /boards
-router.get("/", async (_req: Request, res: Response) => {
-  const boards = await prisma.board.findMany({
-    include: {
-      posts: true,
-    },
+export async function boardsRoutes(app: FastifyInstance) {
+  app.get("/", async () => {
+    return prisma.board.findMany({
+      include: {
+        posts: true,
+      },
+    });
   });
 
-  res.json(boards);
-});
+  app.get("/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
 
-// GET /boards/:id
-router.get("/:id", async (req: Request, res: Response) => {
-  const id = String(req.params.id);
-
-  const board = await prisma.board.findUnique({
-    where: { id },
-    include: {
-      posts: {
-        include: {
-          comments: true,
+    const board = await prisma.board.findUnique({
+      where: { id },
+      include: {
+        posts: {
+          include: {
+            comments: true,
+          },
         },
       },
-    },
+    });
+
+    if (!board) {
+      return reply.status(404).send({ error: "Board not found" });
+    }
+
+    return board;
   });
 
-  if (!board) {
-    return res.status(404).json({ error: "Board not found" });
-  }
+  app.post("/", async (request) => {
+    const { title } = request.body as { title: string };
 
-  res.json(board);
-});
-
-// POST /boards
-router.post("/", async (req: Request, res: Response) => {
-  const { title } = req.body;
-
-  const board = await prisma.board.create({
-    data: { title },
+    return prisma.board.create({
+      data: { title },
+    });
   });
 
-  res.json(board);
-});
+  app.post("/:id/posts", async (request) => {
+    const { id } = request.params as { id: string };
+    const { title, content, authorId } = request.body as {
+      title: string;
+      content: string;
+      authorId: string;
+    };
 
-// POST /boards/:id/posts
-router.post("/:id/posts", async (req: Request, res: Response) => {
-  const boardId = String(req.params.id);
-  const { title, content, authorId } = req.body;
-
-  const post = await prisma.post.create({
-    data: {
-      title,
-      content,
-      authorId,
-      boardId,
-    },
+    return prisma.post.create({
+      data: {
+        title,
+        content,
+        authorId,
+        boardId: id,
+      },
+    });
   });
 
-  res.json(post);
-});
+  app.post("/posts/:id/comments", async (request) => {
+    const { id } = request.params as { id: string };
+    const { content, authorId } = request.body as {
+      content: string;
+      authorId: string;
+    };
 
-// POST /posts/:id/comments
-router.post("/posts/:id/comments", async (req: Request, res: Response) => {
-  const postId = String(req.params.id);
-  const { content, authorId } = req.body;
-
-  const comment = await prisma.comment.create({
-    data: {
-      content,
-      authorId,
-      postId,
-    },
+    return prisma.comment.create({
+      data: {
+        content,
+        authorId,
+        postId: id,
+      },
+    });
   });
-
-  res.json(comment);
-});
-
-export default router;
+}
