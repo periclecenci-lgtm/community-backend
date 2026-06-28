@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/auth.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { commanderRoutes } from "./routes/commander.js";
 import { boardsRoutes } from "./routes/boards.js";
+import { adminRoutes } from "./routes/admin.js";
 import { startCommanderScheduler } from "./workers/commanderScheduler.js";
 
 const PORT = Number(process.env.PORT ?? 4001);
@@ -51,6 +52,10 @@ await app.register(commanderRoutes, {
 
 await app.register(boardsRoutes, {
   prefix: "/api/boards",
+});
+
+await app.register(adminRoutes, {
+  prefix: "/api/admin",
 });
 
 app.listen({ port: PORT, host: HOST }).then(() => {

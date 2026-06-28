@@ -10,7 +10,7 @@ export async function createSession(userId: string) {
   const expiresAt = new Date(Date.now() + TTL_SECONDS * 1000);
 
   await prisma.session.create({
-    data: { userId, sessionKey, expiresAt }
+    data: { userId, sessionKey, expiresAt },
   });
 
   return { sessionKey, expiresAt };
@@ -19,17 +19,21 @@ export async function createSession(userId: string) {
 export async function revokeSession(sessionKey: string) {
   await prisma.session.updateMany({
     where: { sessionKey, revokedAt: null },
-    data: { revokedAt: new Date() }
+    data: { revokedAt: new Date() },
   });
 }
 
-export function setSessionCookie(reply: FastifyReply, sessionKey: string, expiresAt: Date) {
+export function setSessionCookie(
+  reply: FastifyReply,
+  sessionKey: string,
+  expiresAt: Date
+) {
   reply.setCookie(COOKIE_NAME, sessionKey, {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    expires: expiresAt
+    expires: expiresAt,
   });
 }
 
@@ -39,27 +43,53 @@ export function clearSessionCookie(reply: FastifyReply) {
 
 export async function getSessionUser(req: FastifyRequest) {
   const sessionKey = req.cookies?.[COOKIE_NAME];
-  if (!sessionKey) return null;
+
+  if (!sessionKey) {
+    return null;
+  }
 
   const session = await prisma.session.findUnique({
     where: { sessionKey },
-    include: { user: true }
+    include: { user: true },
   });
 
-  if (!session) return null;
-  if (session.revokedAt) return null;
-  if (session.expiresAt.getTime() < Date.now()) return null;
+  if (!session) {
+    return null;
+  }
+
+  if (session.revokedAt) {
+    return null;
+  }
+
+  if (session.expiresAt.getTime() < Date.now()) {
+    return null;
+  }
 
   return session.user;
 }
 
 export async function requireSessionUser(req: FastifyRequest) {
   const user = await getSessionUser(req);
+
   if (!user) {
     const err = new Error("UNAUTHORIZED");
-    // @ts-expect-error fastify custom
+    // @ts-expect-error fastify custom statusCode
     err.statusCode = 401;
     throw err;
   }
+
+  return user;
+}
+
+export async function requireAdmin(req: FastifyRequest) {
+  const user = await requireSessionUser(req);
+
+  if (user.role !== "ADMIN") {
+    const err = new Error("FORBIDDEN");
+    // @ts-expect-error fastify custom statusCode
+    err.statusCode = 403;
+    throw err;
+  }
+
   return user;
 }
