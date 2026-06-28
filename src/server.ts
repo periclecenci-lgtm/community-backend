@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
+import { ZodError } from "zod";
 
 import { authRoutes } from "./routes/auth.js";
 import { walletRoutes } from "./routes/wallet.js";
@@ -17,7 +18,45 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "http://localhost:3000";
 const SESSION_SECRET =
   process.env.SESSION_SECRET ?? "dev-secret-change-me-32chars-minimum";
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+});
+
+app.setErrorHandler((error, _request, reply) => {
+  if (error instanceof ZodError) {
+    return reply.code(400).send({
+      error: "Validation error",
+      issues: error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    });
+  }
+
+  if (error.statusCode === 401) {
+    return reply.code(401).send({
+      error: "Unauthorized",
+    });
+  }
+
+  if (error.statusCode === 403) {
+    return reply.code(403).send({
+      error: "Forbidden",
+    });
+  }
+
+  if (error.statusCode && error.statusCode < 500) {
+    return reply.code(error.statusCode).send({
+      error: error.message,
+    });
+  }
+
+  app.log.error(error);
+
+  return reply.code(500).send({
+    error: "Internal server error",
+  });
+});
 
 await app.register(cors, {
   origin: CORS_ORIGIN,
@@ -61,7 +100,10 @@ await app.register(adminRoutes, {
 app.listen({ port: PORT, host: HOST }).then(() => {
   console.log(`Backend community running on http://${HOST}:${PORT}`);
 
-  startCommanderScheduler(app).catch((err) =>
-    app.log.error({ err }, "Commander scheduler failed")
-  );
+  startCommanderScheduler(app).catch((error) => {
+    app.log.error(
+      { error },
+      "Commander scheduler failed"
+    );
+  });
 });

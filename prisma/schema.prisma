@@ -8,57 +8,65 @@ datasource db {
 }
 
 model User {
-  id                 String                   @id @default(uuid())
-  email              String                   @unique
-  username           String                   @unique
-  passwordHash       String
-  emailVerifiedAt    DateTime?
-  status             UserStatus               @default(PENDING)
-  role               UserRole                 @default(USER)
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  id                  String                   @id @default(uuid())
+  email               String                   @unique
+  username            String                   @unique
+  passwordHash        String
+  emailVerifiedAt     DateTime?
+  status              UserStatus               @default(PENDING)
+  role                UserRole                 @default(USER)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
 
-  posts              Post[]
-  comments           Comment[]
-
-  commanderStatuses  CommanderStatus[]
-  verificationTokens EmailVerificationToken[]
+  posts               Post[]
+  comments            Comment[]
+  commanderStatuses   CommanderStatus[]
+  verificationTokens  EmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
-  sessions           Session[]
-  walletLinks        WalletLink[]
-  walletNonces       WalletNonce[]
+  sessions            Session[]
+  walletLinks         WalletLink[]
+  walletNonces        WalletNonce[]
 }
 
 model Board {
-  id        String   @id @default(uuid())
-  title     String
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  description String
+  createdAt   DateTime @default(now())
 
-  posts     Post[]
+  posts Post[]
 }
 
 model Post {
-  id        String    @id @default(uuid())
-  title     String
-  content   String
-  authorId  String
-  boardId   String
-  createdAt DateTime  @default(now())
+  id         String   @id @default(uuid())
+  title      String
+  content    String
+  authorId   String
+  boardId    String
+  isProposal Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
-  author   User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  board    Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  board    Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
   comments Comment[]
+
+  @@index([authorId])
+  @@index([boardId])
 }
 
 model Comment {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   content   String
   authorId  String
   postId    String
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
   post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([authorId])
+  @@index([postId])
 }
 
 model Session {
