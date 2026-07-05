@@ -15,6 +15,7 @@ import {
   getSessionUser,
   setSessionCookie,
 } from "../shared/session.js";
+import { getCommunityAccess } from "../services/communityAccessService.js";
 
 const registerSchema = z
   .object({
@@ -55,7 +56,9 @@ function hashToken(token: string) {
     .digest("hex");
 }
 
-export async function authRoutes(app: FastifyInstance) {
+export async function authRoutes(
+  app: FastifyInstance
+) {
   app.post("/register", async (request, reply) => {
     const body = registerSchema.parse(request.body);
     const email = body.email.toLowerCase();
@@ -83,39 +86,50 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    const passwordHash = await argon2.hash(body.password);
+    const passwordHash = await argon2.hash(
+      body.password
+    );
     const token = generateToken();
     const expiresAt = new Date(
       Date.now() + 24 * 60 * 60 * 1000
     );
 
-    const user = await prisma.$transaction(async (transaction) => {
-      const createdUser = await transaction.user.create({
-        data: {
-          email,
-          username: body.username,
-          passwordHash,
-          status: "PENDING",
-          emailVerifiedAt: null,
-        },
-      });
+    const user = await prisma.$transaction(
+      async (transaction) => {
+        const createdUser =
+          await transaction.user.create({
+            data: {
+              email,
+              username: body.username,
+              passwordHash,
+              status: "PENDING",
+              emailVerifiedAt: null,
+            },
+          });
 
-      await transaction.emailVerificationToken.create({
-        data: {
-          userId: createdUser.id,
-          tokenHash: token.hash,
-          expiresAt,
-        },
-      });
+        await transaction.emailVerificationToken.create({
+          data: {
+            userId: createdUser.id,
+            tokenHash: token.hash,
+            expiresAt,
+          },
+        });
 
-      return createdUser;
-    });
+        return createdUser;
+      }
+    );
 
     try {
-      await sendVerificationEmail(user.email, token.raw);
+      await sendVerificationEmail(
+        user.email,
+        token.raw
+      );
     } catch (error) {
       app.log.error(
-        { error, userId: user.id },
+        {
+          error,
+          userId: user.id,
+        },
         "Unable to send verification email"
       );
 
@@ -133,143 +147,43 @@ export async function authRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post("/resend-verification", async (request, reply) => {
-    const body = emailSchema.parse(request.body);
-    const email = body.email.toLowerCase();
+  app.post(
+    "/resend-verification",
+    async (request, reply) => {
+      const body = emailSchema.parse(request.body);
+      const email = body.email.toLowerCase();
 
-    const user = await prisma.user.findUnique({
-      where: {
-        email,
-      },
-    });
-
-    if (
-      !user ||
-      user.status !== "PENDING" ||
-      user.emailVerifiedAt
-    ) {
-      return reply.send({
-        ok: true,
-        message:
-          "If the account requires verification, a new email will be sent.",
-      });
-    }
-
-    const token = generateToken();
-    const expiresAt = new Date(
-      Date.now() + 24 * 60 * 60 * 1000
-    );
-
-    await prisma.$transaction([
-      prisma.emailVerificationToken.deleteMany({
+      const user = await prisma.user.findUnique({
         where: {
-          userId: user.id,
-          usedAt: null,
-        },
-      }),
-      prisma.emailVerificationToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: token.hash,
-          expiresAt,
-        },
-      }),
-    ]);
-
-    try {
-      await sendVerificationEmail(user.email, token.raw);
-    } catch (error) {
-      app.log.error(
-        { error, userId: user.id },
-        "Unable to resend verification email"
-      );
-    }
-
-    return reply.send({
-      ok: true,
-      message:
-        "If the account requires verification, a new email will be sent.",
-    });
-  });
-
-  app.get("/verify-email", async (request, reply) => {
-    const { token } = tokenQuerySchema.parse(request.query);
-    const tokenHash = hashToken(token);
-
-    const record =
-      await prisma.emailVerificationToken.findUnique({
-        where: {
-          tokenHash,
+          email,
         },
       });
 
-    if (
-      !record ||
-      record.usedAt ||
-      record.expiresAt.getTime() < Date.now()
-    ) {
-      return reply.code(400).send({
-        ok: false,
-        error: "Verification link is invalid or expired",
-      });
-    }
+      if (
+        !user ||
+        user.status !== "PENDING" ||
+        user.emailVerifiedAt
+      ) {
+        return reply.send({
+          ok: true,
+          message:
+            "If the account requires verification, a new email will be sent.",
+        });
+      }
 
-    await prisma.$transaction([
-      prisma.emailVerificationToken.update({
-        where: {
-          id: record.id,
-        },
-        data: {
-          usedAt: new Date(),
-        },
-      }),
-      prisma.user.update({
-        where: {
-          id: record.userId,
-        },
-        data: {
-          status: "ACTIVE",
-          emailVerifiedAt: new Date(),
-        },
-      }),
-    ]);
-
-    const { sessionKey, expiresAt } = await createSession(
-      record.userId
-    );
-
-    setSessionCookie(reply, sessionKey, expiresAt);
-
-    return reply.send({
-      ok: true,
-      message: "Email verified successfully",
-    });
-  });
-
-  app.post("/forgot-password", async (request, reply) => {
-    const body = emailSchema.parse(request.body);
-    const email = body.email.toLowerCase();
-
-    const user = await prisma.user.findUnique({
-      where: {
-        email,
-      },
-    });
-
-    if (user && user.status === "ACTIVE") {
       const token = generateToken();
       const expiresAt = new Date(
-        Date.now() + 60 * 60 * 1000
+        Date.now() + 24 * 60 * 60 * 1000
       );
 
       await prisma.$transaction([
-        prisma.passwordResetToken.deleteMany({
+        prisma.emailVerificationToken.deleteMany({
           where: {
             userId: user.id,
             usedAt: null,
           },
         }),
-        prisma.passwordResetToken.create({
+        prisma.emailVerificationToken.create({
           data: {
             userId: user.id,
             tokenHash: token.hash,
@@ -279,80 +193,214 @@ export async function authRoutes(app: FastifyInstance) {
       ]);
 
       try {
-        await sendPasswordResetEmail(
+        await sendVerificationEmail(
           user.email,
           token.raw
         );
       } catch (error) {
         app.log.error(
-          { error, userId: user.id },
-          "Unable to send password reset email"
+          {
+            error,
+            userId: user.id,
+          },
+          "Unable to resend verification email"
         );
       }
+
+      return reply.send({
+        ok: true,
+        message:
+          "If the account requires verification, a new email will be sent.",
+      });
     }
+  );
 
-    return reply.send({
-      ok: true,
-      message:
-        "If an active account exists for this email, reset instructions will be sent.",
-    });
-  });
+  app.get(
+    "/verify-email",
+    async (request, reply) => {
+      const { token } = tokenQuerySchema.parse(
+        request.query
+      );
+      const tokenHash = hashToken(token);
 
-  app.post("/reset-password", async (request, reply) => {
-    const body = resetPasswordSchema.parse(request.body);
-    const tokenHash = hashToken(body.token);
+      const record =
+        await prisma.emailVerificationToken.findUnique({
+          where: {
+            tokenHash,
+          },
+        });
 
-    const record =
-      await prisma.passwordResetToken.findUnique({
+      if (
+        !record ||
+        record.usedAt ||
+        record.expiresAt.getTime() < Date.now()
+      ) {
+        return reply.code(400).send({
+          ok: false,
+          error:
+            "Verification link is invalid or expired",
+        });
+      }
+
+      await prisma.$transaction([
+        prisma.emailVerificationToken.update({
+          where: {
+            id: record.id,
+          },
+          data: {
+            usedAt: new Date(),
+          },
+        }),
+        prisma.user.update({
+          where: {
+            id: record.userId,
+          },
+          data: {
+            status: "ACTIVE",
+            emailVerifiedAt: new Date(),
+          },
+        }),
+      ]);
+
+      const { sessionKey, expiresAt } =
+        await createSession(record.userId);
+
+      setSessionCookie(
+        reply,
+        sessionKey,
+        expiresAt
+      );
+
+      return reply.send({
+        ok: true,
+        message: "Email verified successfully",
+      });
+    }
+  );
+
+  app.post(
+    "/forgot-password",
+    async (request, reply) => {
+      const body = emailSchema.parse(request.body);
+      const email = body.email.toLowerCase();
+
+      const user = await prisma.user.findUnique({
         where: {
-          tokenHash,
+          email,
         },
       });
 
-    if (
-      !record ||
-      record.usedAt ||
-      record.expiresAt.getTime() < Date.now()
-    ) {
-      return reply.code(400).send({
-        ok: false,
-        error: "Reset link is invalid or expired",
+      if (
+        user &&
+        user.status === "ACTIVE"
+      ) {
+        const token = generateToken();
+        const expiresAt = new Date(
+          Date.now() + 60 * 60 * 1000
+        );
+
+        await prisma.$transaction([
+          prisma.passwordResetToken.deleteMany({
+            where: {
+              userId: user.id,
+              usedAt: null,
+            },
+          }),
+          prisma.passwordResetToken.create({
+            data: {
+              userId: user.id,
+              tokenHash: token.hash,
+              expiresAt,
+            },
+          }),
+        ]);
+
+        try {
+          await sendPasswordResetEmail(
+            user.email,
+            token.raw
+          );
+        } catch (error) {
+          app.log.error(
+            {
+              error,
+              userId: user.id,
+            },
+            "Unable to send password reset email"
+          );
+        }
+      }
+
+      return reply.send({
+        ok: true,
+        message:
+          "If an active account exists for this email, reset instructions will be sent.",
       });
     }
+  );
 
-    const passwordHash = await argon2.hash(
-      body.newPassword
-    );
+  app.post(
+    "/reset-password",
+    async (request, reply) => {
+      const body = resetPasswordSchema.parse(
+        request.body
+      );
+      const tokenHash = hashToken(body.token);
 
-    await prisma.$transaction([
-      prisma.passwordResetToken.update({
-        where: {
-          id: record.id,
-        },
-        data: {
-          usedAt: new Date(),
-        },
-      }),
-      prisma.user.update({
-        where: {
-          id: record.userId,
-        },
-        data: {
-          passwordHash,
-        },
-      }),
-      prisma.session.deleteMany({
-        where: {
-          userId: record.userId,
-        },
-      }),
-    ]);
+      const record =
+        await prisma.passwordResetToken.findUnique({
+          where: {
+            tokenHash,
+          },
+        });
 
-    return reply.send({
-      ok: true,
-      message: "Password updated successfully",
-    });
-  });
+      if (
+        !record ||
+        record.usedAt ||
+        record.expiresAt.getTime() < Date.now()
+      ) {
+        return reply.code(400).send({
+          ok: false,
+          error:
+            "Reset link is invalid or expired",
+        });
+      }
+
+      const passwordHash = await argon2.hash(
+        body.newPassword
+      );
+
+      await prisma.$transaction([
+        prisma.passwordResetToken.update({
+          where: {
+            id: record.id,
+          },
+          data: {
+            usedAt: new Date(),
+          },
+        }),
+        prisma.user.update({
+          where: {
+            id: record.userId,
+          },
+          data: {
+            passwordHash,
+          },
+        }),
+        prisma.session.deleteMany({
+          where: {
+            userId: record.userId,
+          },
+        }),
+      ]);
+
+      return reply.send({
+        ok: true,
+        message:
+          "Password updated successfully",
+      });
+    }
+  );
 
   app.post("/login", async (request, reply) => {
     const body = loginSchema.parse(request.body);
@@ -371,10 +419,11 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    const passwordIsValid = await argon2.verify(
-      user.passwordHash,
-      body.password
-    );
+    const passwordIsValid =
+      await argon2.verify(
+        user.passwordHash,
+        body.password
+      );
 
     if (!passwordIsValid) {
       return reply.code(401).send({
@@ -389,7 +438,8 @@ export async function authRoutes(app: FastifyInstance) {
     ) {
       return reply.code(403).send({
         ok: false,
-        error: "Verify your email before logging in",
+        error:
+          "Verify your email before logging in",
         code: "EMAIL_NOT_VERIFIED",
       });
     }
@@ -401,11 +451,14 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    const { sessionKey, expiresAt } = await createSession(
-      user.id
-    );
+    const { sessionKey, expiresAt } =
+      await createSession(user.id);
 
-    setSessionCookie(reply, sessionKey, expiresAt);
+    setSessionCookie(
+      reply,
+      sessionKey,
+      expiresAt
+    );
 
     return reply.send({
       ok: true,
@@ -413,7 +466,6 @@ export async function authRoutes(app: FastifyInstance) {
         id: user.id,
         email: user.email,
         username: user.username,
-        role: user.role,
         status: user.status,
       },
     });
@@ -436,16 +488,20 @@ export async function authRoutes(app: FastifyInstance) {
       });
     }
 
-    const wallets = await prisma.walletLink.findMany({
-      where: {
-        userId: user.id,
-        unlinkedAt: null,
-      },
-      select: {
-        chainId: true,
-        address: true,
-      },
-    });
+    const [wallets, access] =
+      await Promise.all([
+        prisma.walletLink.findMany({
+          where: {
+            userId: user.id,
+            unlinkedAt: null,
+          },
+          select: {
+            chainId: true,
+            address: true,
+          },
+        }),
+        getCommunityAccess(user),
+      ]);
 
     return reply.send({
       ok: true,
@@ -453,12 +509,14 @@ export async function authRoutes(app: FastifyInstance) {
         id: user.id,
         email: user.email,
         username: user.username,
-        emailVerifiedAt: user.emailVerifiedAt,
+        emailVerifiedAt:
+          user.emailVerifiedAt,
         status: user.status,
-        role: user.role,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         wallets,
+        commander: access.commander,
+        permissions: access.permissions,
       },
     });
   });

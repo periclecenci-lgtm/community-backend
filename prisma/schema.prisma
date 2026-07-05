@@ -8,15 +8,15 @@ datasource db {
 }
 
 model User {
-  id                  String                   @id @default(uuid())
-  email               String                   @unique
-  username            String                   @unique
+  id                  String     @id @default(uuid())
+  email               String     @unique
+  username            String     @unique
   passwordHash        String
   emailVerifiedAt     DateTime?
-  status              UserStatus               @default(PENDING)
-  role                UserRole                 @default(USER)
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  status              UserStatus @default(PENDING)
+  role                UserRole   @default(USER)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   posts               Post[]
   comments            Comment[]
@@ -26,6 +26,38 @@ model User {
   sessions            Session[]
   walletLinks         WalletLink[]
   walletNonces        WalletNonce[]
+
+  teamMemberships  CommunityTeamMembership[] @relation("TeamMember")
+  teamAppointments CommunityTeamMembership[] @relation("TeamAppointer")
+
+  auditEvents AuditEvent[] @relation("AuditActor")
+
+  moderationCasesOpened   ContentModerationCase[] @relation("ModerationCaseOpener")
+  moderationCasesResolved ContentModerationCase[] @relation("ModerationCaseResolver")
+  moderationActions       ContentModerationAction[]
+
+  reportsCreated  CommunityReport[] @relation("ReportCreator")
+  reportsReviewed CommunityReport[] @relation("ReportReviewer")
+  reportsAgainst  CommunityReport[] @relation("ReportedUser")
+
+  disciplinaryCases UserDisciplinaryCase[] @relation("DisciplinarySubject")
+  casesOpened      UserDisciplinaryCase[] @relation("DisciplinaryOpener")
+  casesResolved    UserDisciplinaryCase[] @relation("DisciplinaryResolver")
+  disciplinaryVotes UserDisciplinaryVote[]
+
+  projects                CommunityProject[]
+  projectLikes            CommunityProjectLike[]
+  commanderProjectReviews CommanderProjectReview[]
+  projectEvaluations      ProjectTeamEvaluation[]
+  projectStatusChanges    ProjectStatusHistory[]
+
+  teamElectionsCreated TeamElection[] @relation("TeamElectionCreator")
+  electionCandidacies  TeamElectionCandidate[] @relation("ElectionCandidateUser")
+  candidateNominations TeamElectionCandidate[] @relation("ElectionCandidateNominator")
+  teamElectionVotes    TeamElectionVote[]
+
+  protocolProposals ProtocolServiceProposal[]
+  protocolVotes     ProtocolServiceVote[]
 }
 
 model Board {
@@ -39,34 +71,51 @@ model Board {
 }
 
 model Post {
-  id         String   @id @default(uuid())
-  title      String
-  content    String
-  authorId   String
-  boardId    String
-  isProposal Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id               String            @id @default(uuid())
+  title            String
+  content          String
+  authorId         String
+  boardId          String
+  isProposal       Boolean           @default(false)
+  visibility       ContentVisibility @default(VISIBLE)
+  visibilityReason String?
+  hiddenAt         DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  board    Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  comments Comment[]
+  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  board  Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  comments        Comment[]
+  moderationCases ContentModerationCase[]
+  reports         CommunityReport[]
+  project         CommunityProject?
 
   @@index([authorId])
   @@index([boardId])
+  @@index([visibility, createdAt])
 }
 
 model Comment {
-  id        String   @id @default(uuid())
-  content   String
-  authorId  String
-  postId    String
-  createdAt DateTime @default(now())
+  id               String            @id @default(uuid())
+  content          String
+  authorId         String
+  postId           String
+  visibility       ContentVisibility @default(VISIBLE)
+  visibilityReason String?
+  hiddenAt         DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
   post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
 
+  moderationCases ContentModerationCase[]
+  reports         CommunityReport[]
+
   @@index([authorId])
   @@index([postId])
+  @@index([visibility, createdAt])
 }
 
 model Session {
@@ -99,7 +148,7 @@ model EmailVerificationToken {
 
 model PasswordResetToken {
   id        String    @id @default(uuid())
-  userId    String
+  userId     String
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
@@ -156,17 +205,372 @@ model CommanderStatus {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, chainId, address])
+  @@index([userId, isCommander])
   @@index([isCommander])
   @@index([lastCheckedAt])
 }
 
-enum CommanderReason {
-  OK
-  NO_WALLET
-  UNVERIFIED_EMAIL
-  INACTIVE_ACCOUNT
-  BELOW_THRESHOLD
-  CHAIN_READ_ERROR
+model CommunityTeamMembership {
+  id               String        @id @default(uuid())
+  userId           String
+  team             CommunityTeam
+  appointedById    String?
+  sourceElectionId String?
+  appointedAt      DateTime      @default(now())
+  termStartsAt     DateTime?
+  termEndsAt       DateTime?
+  endedAt          DateTime?
+  endReason        String?
+
+  user        User  @relation("TeamMember", fields: [userId], references: [id], onDelete: Cascade)
+  appointedBy User? @relation("TeamAppointer", fields: [appointedById], references: [id], onDelete: SetNull)
+
+  sourceElection TeamElection? @relation(fields: [sourceElectionId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, team])
+  @@index([team, endedAt])
+  @@index([appointedById])
+  @@index([sourceElectionId])
+  @@index([termEndsAt])
+}
+
+model TeamElection {
+  id                 String             @id @default(uuid())
+  type               TeamElectionType
+  status             TeamElectionStatus @default(DRAFT)
+  title              String
+  description        String
+  createdById        String
+  electorateCount    Int
+  seatCount          Int
+  maximumPercentBps  Int                @default(2000)
+  bootstrapMinimum   Int
+  currentRound       Int                @default(1)
+  runoffSeatCount    Int?
+  snapshotAt         DateTime
+  opensAt            DateTime
+  closesAt           DateTime
+  termStartsAt       DateTime?
+  termEndsAt         DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  createdBy User @relation("TeamElectionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  candidates  TeamElectionCandidate[]
+  votes       TeamElectionVote[]
+  memberships CommunityTeamMembership[]
+
+  @@index([type, status])
+  @@index([opensAt, closesAt])
+  @@index([createdById])
+}
+
+model TeamElectionCandidate {
+  id            String                  @id @default(uuid())
+  electionId    String
+  candidateId   String
+  nominatedById String?
+  statement     String
+  status        ElectionCandidateStatus @default(SUBMITTED)
+  submittedAt   DateTime                @default(now())
+  decidedAt     DateTime?
+
+  election    TeamElection @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidate   User         @relation("ElectionCandidateUser", fields: [candidateId], references: [id], onDelete: Restrict)
+  nominatedBy User?        @relation("ElectionCandidateNominator", fields: [nominatedById], references: [id], onDelete: SetNull)
+
+  votes TeamElectionVote[]
+
+  @@unique([electionId, candidateId])
+  @@index([electionId, status])
+  @@index([candidateId, submittedAt])
+  @@index([nominatedById])
+}
+
+model TeamElectionVote {
+  id          String   @id @default(uuid())
+  electionId  String
+  candidateId String
+  voterId     String
+  round       Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  election  TeamElection          @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidate TeamElectionCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  voter     User                  @relation(fields: [voterId], references: [id], onDelete: Restrict)
+
+  @@unique([candidateId, voterId, round])
+  @@index([electionId, voterId, round])
+  @@index([electionId, round])
+  @@index([voterId, createdAt])
+}
+
+model AuditEvent {
+  id         String          @id @default(uuid())
+  actorId    String?
+  actorType  AuditActorType
+  actorLabel String
+  action     String
+  entityType AuditEntityType
+  entityId   String?
+  reason     String?
+  outcome    String?
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+model ContentModerationCase {
+  id           String               @id @default(uuid())
+  postId       String?
+  commentId    String?
+  status       ModerationCaseStatus @default(OPEN)
+  reason       String
+  openedById   String
+  resolvedById String?
+  openedAt     DateTime             @default(now())
+  resolvedAt   DateTime?
+
+  post       Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  openedBy   User     @relation("ModerationCaseOpener", fields: [openedById], references: [id], onDelete: Restrict)
+  resolvedBy User?    @relation("ModerationCaseResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  actions ContentModerationAction[]
+
+  @@index([postId])
+  @@index([commentId])
+  @@index([status, openedAt])
+  @@index([openedById])
+}
+
+model ContentModerationAction {
+  id        String                      @id @default(uuid())
+  caseId    String
+  actorId   String
+  action    ContentModerationActionType
+  reason    String
+  createdAt DateTime                    @default(now())
+
+  moderationCase ContentModerationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actor          User                  @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model CommunityReport {
+  id              String       @id @default(uuid())
+  reporterId      String
+  targetUserId    String?
+  targetPostId    String?
+  targetCommentId String?
+  targetProjectId String?
+  reason          String
+  details         String?
+  status          ReportStatus @default(OPEN)
+  reviewedById    String?
+  reviewOutcome   String?
+  createdAt       DateTime     @default(now())
+  reviewedAt      DateTime?
+  resolvedAt      DateTime?
+
+  reporter      User              @relation("ReportCreator", fields: [reporterId], references: [id], onDelete: Restrict)
+  reviewedBy    User?             @relation("ReportReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  targetUser    User?             @relation("ReportedUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+  targetPost    Post?             @relation(fields: [targetPostId], references: [id], onDelete: Cascade)
+  targetComment Comment?          @relation(fields: [targetCommentId], references: [id], onDelete: Cascade)
+  targetProject CommunityProject? @relation(fields: [targetProjectId], references: [id], onDelete: Cascade)
+
+  disciplinaryCase UserDisciplinaryCase?
+
+  @@index([reporterId, createdAt])
+  @@index([status, createdAt])
+  @@index([targetUserId])
+  @@index([targetPostId])
+  @@index([targetCommentId])
+  @@index([targetProjectId])
+}
+
+model UserDisciplinaryCase {
+  id                String                 @id @default(uuid())
+  subjectUserId     String
+  openedById        String
+  resolvedById      String?
+  sourceReportId    String?                @unique
+  type              DisciplinaryCaseType
+  status            DisciplinaryCaseStatus @default(OPEN)
+  reason            String
+  requiredApprovals Int                    @default(3)
+  openedAt          DateTime               @default(now())
+  resolvedAt        DateTime?
+
+  subjectUser  User             @relation("DisciplinarySubject", fields: [subjectUserId], references: [id], onDelete: Restrict)
+  openedBy     User             @relation("DisciplinaryOpener", fields: [openedById], references: [id], onDelete: Restrict)
+  resolvedBy   User?            @relation("DisciplinaryResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  sourceReport CommunityReport? @relation(fields: [sourceReportId], references: [id], onDelete: SetNull)
+
+  votes UserDisciplinaryVote[]
+
+  @@index([subjectUserId, status])
+  @@index([status, openedAt])
+  @@index([openedById])
+}
+
+model UserDisciplinaryVote {
+  id        String           @id @default(uuid())
+  caseId    String
+  voterId   String
+  vote      DisciplinaryVote
+  reason    String?
+  createdAt DateTime         @default(now())
+
+  disciplinaryCase UserDisciplinaryCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  voter             User                  @relation(fields: [voterId], references: [id], onDelete: Restrict)
+
+  @@unique([caseId, voterId])
+  @@index([voterId, createdAt])
+}
+
+model CommunityProject {
+  id           String        @id @default(uuid())
+  authorId     String
+  sourcePostId String?       @unique
+  title        String
+  summary      String
+  description  String
+  status       ProjectStatus @default(SUBMITTED)
+  submittedAt  DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  completedAt  DateTime?
+
+  author     User  @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  sourcePost Post? @relation(fields: [sourcePostId], references: [id], onDelete: SetNull)
+
+  likes            CommunityProjectLike[]
+  commanderReviews CommanderProjectReview[]
+  teamEvaluations  ProjectTeamEvaluation[]
+  statusHistory    ProjectStatusHistory[]
+  reports          CommunityReport[]
+
+  @@index([authorId, submittedAt])
+  @@index([status, submittedAt])
+}
+
+model CommunityProjectLike {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project CommunityProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId, createdAt])
+}
+
+model CommanderProjectReview {
+  id             String                @id @default(uuid())
+  projectId      String
+  reviewerId     String
+  recommendation ProjectRecommendation
+  comment        String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  project  CommunityProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewer User             @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, reviewerId])
+  @@index([reviewerId, createdAt])
+}
+
+model ProjectTeamEvaluation {
+  id                  String                 @id @default(uuid())
+  projectId           String
+  reviewerId          String
+  team                ProjectEvaluationTeam
+  recommendation      ProjectRecommendation
+  utilityScore        Int?
+  qualityScore        Int?
+  impactScore         Int?
+  feasibilityScore    Int?
+  sustainabilityScore Int?
+  integrationScore    Int?
+  comment             String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  project  CommunityProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewer User             @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, reviewerId, team])
+  @@index([projectId, team])
+  @@index([reviewerId, createdAt])
+}
+
+model ProjectStatusHistory {
+  id         String        @id @default(uuid())
+  projectId  String
+  actorId    String
+  fromStatus ProjectStatus?
+  toStatus   ProjectStatus
+  reason     String
+  createdAt  DateTime      @default(now())
+
+  project CommunityProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor   User             @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model ProtocolServiceProposal {
+  id                 String                        @id @default(uuid())
+  proposerId         String
+  serviceType        ProtocolServiceType
+  name               String
+  description        String
+  chainId            Int?
+  contractAddress    String?
+  endpoint           String?
+  status             ProtocolServiceProposalStatus @default(SUBMITTED)
+  requiredApprovals  Int                           @default(3)
+  createdAt          DateTime                      @default(now())
+  decidedAt          DateTime?
+  activatedAt        DateTime?
+  retiredAt          DateTime?
+
+  proposer User                  @relation(fields: [proposerId], references: [id], onDelete: Restrict)
+  votes    ProtocolServiceVote[]
+
+  @@index([status, createdAt])
+  @@index([serviceType, status])
+  @@index([proposerId, createdAt])
+}
+
+model ProtocolServiceVote {
+  id         String         @id @default(uuid())
+  proposalId String
+  voterId    String
+  vote       GovernanceVote
+  reason     String?
+  createdAt  DateTime       @default(now())
+
+  proposal ProtocolServiceProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  voter    User                    @relation(fields: [voterId], references: [id], onDelete: Restrict)
+
+  @@unique([proposalId, voterId])
+  @@index([voterId, createdAt])
 }
 
 enum UserStatus {
@@ -178,4 +582,155 @@ enum UserStatus {
 enum UserRole {
   USER
   ADMIN
+}
+
+enum CommunityTeam {
+  USER_MANAGEMENT
+  DAO_COUNCIL
+  DEVELOPMENT
+}
+
+enum TeamElectionType {
+  USER_MANAGEMENT
+  DAO_COUNCIL
+}
+
+enum TeamElectionStatus {
+  DRAFT
+  NOMINATIONS_OPEN
+  VOTING_OPEN
+  CLOSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ElectionCandidateStatus {
+  SUBMITTED
+  ELIGIBLE
+  WITHDRAWN
+  ELECTED
+  NOT_ELECTED
+  REJECTED
+}
+
+enum CommanderReason {
+  OK
+  NO_WALLET
+  UNVERIFIED_EMAIL
+  INACTIVE_ACCOUNT
+  BELOW_THRESHOLD
+  CHAIN_READ_ERROR
+}
+
+enum ContentVisibility {
+  VISIBLE
+  TEMPORARILY_HIDDEN
+  HIDDEN
+}
+
+enum ModerationCaseStatus {
+  OPEN
+  CONFIRMED
+  REVOKED
+  CANCELLED
+}
+
+enum ContentModerationActionType {
+  TEMPORARILY_HIDE
+  RESTORE
+  CONFIRM_HIDE
+  REJECT_HIDE
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  ESCALATED
+  REJECTED
+}
+
+enum DisciplinaryCaseType {
+  SUSPENSION
+  REINSTATEMENT
+}
+
+enum DisciplinaryCaseStatus {
+  OPEN
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum DisciplinaryVote {
+  APPROVE
+  REJECT
+}
+
+enum ProjectStatus {
+  SUBMITTED
+  COMMANDER_REVIEW
+  SELECTED
+  IN_DEVELOPMENT
+  COMPLETED
+  REJECTED
+}
+
+enum ProjectRecommendation {
+  SUPPORT
+  NEUTRAL
+  OPPOSE
+}
+
+enum ProjectEvaluationTeam {
+  USER_MANAGEMENT
+  DEVELOPMENT
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+enum AuditEntityType {
+  USER
+  TEAM_MEMBERSHIP
+  TEAM_ELECTION
+  TEAM_CANDIDACY
+  POST
+  COMMENT
+  MODERATION_CASE
+  REPORT
+  DISCIPLINARY_CASE
+  PROJECT
+  PROTOCOL_SERVICE
+  SESSION
+  SYSTEM
+}
+
+enum ProtocolServiceType {
+  ORACLE
+  DEX
+  RPC_PROVIDER
+  DATA_PROVIDER
+  BRIDGE
+  AUTOMATION
+  OTHER
+}
+
+enum ProtocolServiceProposalStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  TECHNICALLY_APPROVED
+  TECHNICALLY_REJECTED
+  APPROVED
+  REJECTED
+  ACTIVE
+  RETIRED
+  CANCELLED
+}
+
+enum GovernanceVote {
+  APPROVE
+  REJECT
 }

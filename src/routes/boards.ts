@@ -11,7 +11,9 @@ const slugSchema = z
   .string()
   .min(1)
   .max(100)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+  );
 
 const boardParamsSchema = z.object({
   slug: slugSchema,
@@ -23,21 +25,46 @@ const postParamsSchema = z.object({
 
 const createBoardSchema = z.object({
   slug: slugSchema,
-  title: z.string().trim().min(1).max(150),
-  description: z.string().trim().min(1).max(1000),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(150),
+  description: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000),
 });
 
 const createPostSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  content: z.string().trim().min(1).max(50_000),
-  isProposal: z.boolean().optional().default(false),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200),
+  content: z
+    .string()
+    .trim()
+    .min(1)
+    .max(50_000),
+  isProposal: z
+    .boolean()
+    .optional()
+    .default(false),
 });
 
 const createCommentSchema = z.object({
-  content: z.string().trim().min(1).max(10_000),
+  content: z
+    .string()
+    .trim()
+    .min(1)
+    .max(10_000),
 });
 
-export async function boardsRoutes(app: FastifyInstance) {
+export async function boardsRoutes(
+  app: FastifyInstance
+) {
   app.get("/", async () => {
     return prisma.board.findMany({
       orderBy: {
@@ -46,7 +73,11 @@ export async function boardsRoutes(app: FastifyInstance) {
       include: {
         _count: {
           select: {
-            posts: true,
+            posts: {
+              where: {
+                visibility: "VISIBLE",
+              },
+            },
           },
         },
       },
@@ -56,128 +87,244 @@ export async function boardsRoutes(app: FastifyInstance) {
   app.post("/", async (request, reply) => {
     await requireAdmin(request);
 
-    const body = createBoardSchema.parse(request.body);
+    const body =
+      createBoardSchema.parse(request.body);
 
-    const board = await prisma.board.create({
-      data: body,
-    });
+    const board =
+      await prisma.board.create({
+        data: body,
+      });
 
     return reply.code(201).send({
       board,
     });
   });
 
-  app.get("/:slug/posts", async (request, reply) => {
-    const { slug } = boardParamsSchema.parse(request.params);
+  app.get(
+    "/:slug/posts",
+    async (request, reply) => {
+      const { slug } =
+        boardParamsSchema.parse(
+          request.params
+        );
 
-    const board = await prisma.board.findUnique({
-      where: {
-        slug,
-      },
-      select: {
-        id: true,
-        slug: true,
-        title: true,
-        description: true,
-        posts: {
-          orderBy: {
-            createdAt: "desc",
+      const board =
+        await prisma.board.findUnique({
+          where: {
+            slug,
           },
           select: {
             id: true,
+            slug: true,
             title: true,
-            isProposal: true,
-            createdAt: true,
+            description: true,
+
+            posts: {
+              where: {
+                visibility: "VISIBLE",
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+              select: {
+                id: true,
+                title: true,
+                isProposal: true,
+                createdAt: true,
+
+                author: {
+                  select: {
+                    id: true,
+                    username: true,
+                  },
+                },
+
+                _count: {
+                  select: {
+                    comments: {
+                      where: {
+                        visibility:
+                          "VISIBLE",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+      if (!board) {
+        return reply.code(404).send({
+          error: "Board not found",
+        });
+      }
+
+      const {
+        posts,
+        ...boardDetails
+      } = board;
+
+      return {
+        board: boardDetails,
+        posts,
+      };
+    }
+  );
+
+  app.post(
+    "/:slug/posts",
+    async (request, reply) => {
+      const user =
+        await requireSessionUser(request);
+
+      const { slug } =
+        boardParamsSchema.parse(
+          request.params
+        );
+
+      const body =
+        createPostSchema.parse(
+          request.body
+        );
+
+      const board =
+        await prisma.board.findUnique({
+          where: {
+            slug,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (!board) {
+        return reply.code(404).send({
+          error: "Board not found",
+        });
+      }
+
+      const post =
+        await prisma.post.create({
+          data: {
+            title: body.title,
+            content: body.content,
+            isProposal:
+              body.isProposal,
+            authorId: user.id,
+            boardId: board.id,
+            visibility: "VISIBLE",
+          },
+        });
+
+      return reply.code(201).send({
+        postId: post.id,
+        post,
+      });
+    }
+  );
+
+  app.get(
+    "/post/:postId",
+    async (request, reply) => {
+      const { postId } =
+        postParamsSchema.parse(
+          request.params
+        );
+
+      const post =
+        await prisma.post.findFirst({
+          where: {
+            id: postId,
+            visibility: "VISIBLE",
+          },
+          include: {
             author: {
               select: {
                 id: true,
                 username: true,
               },
             },
-            _count: {
+
+            board: {
               select: {
-                comments: true,
+                id: true,
+                slug: true,
+                title: true,
+              },
+            },
+
+            comments: {
+              where: {
+                visibility: "VISIBLE",
+              },
+              orderBy: {
+                createdAt: "asc",
+              },
+              include: {
+                author: {
+                  select: {
+                    id: true,
+                    username: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!board) {
-      return reply.code(404).send({
-        error: "Board not found",
-      });
+      if (!post) {
+        return reply.code(404).send({
+          error: "Post not found",
+        });
+      }
+
+      return {
+        post,
+      };
     }
+  );
 
-    const { posts, ...boardDetails } = board;
+  app.post(
+    "/post/:postId/comments",
+    async (request, reply) => {
+      const user =
+        await requireSessionUser(request);
 
-    return {
-      board: boardDetails,
-      posts,
-    };
-  });
+      const { postId } =
+        postParamsSchema.parse(
+          request.params
+        );
 
-  app.post("/:slug/posts", async (request, reply) => {
-    const user = await requireSessionUser(request);
-    const { slug } = boardParamsSchema.parse(request.params);
-    const body = createPostSchema.parse(request.body);
+      const body =
+        createCommentSchema.parse(
+          request.body
+        );
 
-    const board = await prisma.board.findUnique({
-      where: {
-        slug,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!board) {
-      return reply.code(404).send({
-        error: "Board not found",
-      });
-    }
-
-    const post = await prisma.post.create({
-      data: {
-        title: body.title,
-        content: body.content,
-        isProposal: body.isProposal,
-        authorId: user.id,
-        boardId: board.id,
-      },
-    });
-
-    return reply.code(201).send({
-      postId: post.id,
-      post,
-    });
-  });
-
-  app.get("/post/:postId", async (request, reply) => {
-    const { postId } = postParamsSchema.parse(request.params);
-
-    const post = await prisma.post.findUnique({
-      where: {
-        id: postId,
-      },
-      include: {
-        author: {
+      const post =
+        await prisma.post.findFirst({
+          where: {
+            id: postId,
+            visibility: "VISIBLE",
+          },
           select: {
             id: true,
-            username: true,
           },
-        },
-        board: {
-          select: {
-            id: true,
-            slug: true,
-            title: true,
-          },
-        },
-        comments: {
-          orderBy: {
-            createdAt: "asc",
+        });
+
+      if (!post) {
+        return reply.code(404).send({
+          error: "Post not found",
+        });
+      }
+
+      const comment =
+        await prisma.comment.create({
+          data: {
+            content: body.content,
+            authorId: user.id,
+            postId,
+            visibility: "VISIBLE",
           },
           include: {
             author: {
@@ -187,59 +334,11 @@ export async function boardsRoutes(app: FastifyInstance) {
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!post) {
-      return reply.code(404).send({
-        error: "Post not found",
+      return reply.code(201).send({
+        comment,
       });
     }
-
-    return {
-      post,
-    };
-  });
-
-  app.post("/post/:postId/comments", async (request, reply) => {
-    const user = await requireSessionUser(request);
-    const { postId } = postParamsSchema.parse(request.params);
-    const body = createCommentSchema.parse(request.body);
-
-    const post = await prisma.post.findUnique({
-      where: {
-        id: postId,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!post) {
-      return reply.code(404).send({
-        error: "Post not found",
-      });
-    }
-
-    const comment = await prisma.comment.create({
-      data: {
-        content: body.content,
-        authorId: user.id,
-        postId,
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-          },
-        },
-      },
-    });
-
-    return reply.code(201).send({
-      comment,
-    });
-  });
+  );
 }
